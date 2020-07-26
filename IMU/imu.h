@@ -2,9 +2,13 @@
 #define MBEDFLYIMU
 
 #define ALPHA 0.5 //低通滤波参数
+#define PI 3.14
 
 #define ADXL345_ADDRESS_8BITS 0x53<<1
-#define ADXL345_RATIO 0.0039 // ADXL345精确度
+#define ADXL345_RATIO 0.003906 // ADXL345精确度
+#define ADXL345_OFFSETX 0x1E
+#define ADXL345_OFFSETY 0x1F
+#define ADXL345_OFFSETZ 0x20
 #define ADXL345_POWER_CTL 0x2D 
 #define ADXL345_DATA_FORMAT 0x31 
 #define ADXL345_BW_RATE 0x2C 
@@ -26,14 +30,17 @@ class imu{
     I2C *i2c_imu=nullptr;
 
 public:
-    double acc_x=0,acc_y=0,acc_z=0,gyr_x,gyr_y,gyr_z;
+    double acc_x=0,acc_y=0,acc_z=0;
+    double gyr_x,gyr_y,gyr_z,gyr_offsetx=0,gyr_offsety=0,gyr_offsetz=0;
     imu(PinName sda,PinName scl);
-    bool ADXL345_Initialize();
-    void ADXL345_ReadData();
-    bool ITG3205_Initialize();
-    void ITG3205_ReadData();
-    bool HMC5883L_Initialize();
-    void HMC5883L_ReadData();
+    int ADXL345_Initialize();
+    int ADXL345_ReadData();
+    int ADXL345_Calibration();
+    int ITG3205_Initialize();
+    int ITG3205_ReadData();
+    int ITG3205_Calibration();
+    int HMC5883L_Initialize();
+    int HMC5883L_ReadData();
 };
 
 #endif
