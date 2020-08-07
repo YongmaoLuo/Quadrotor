@@ -1,4 +1,4 @@
-# MFly
+# PANDA-FLY
 Core chip: Mbed NXP LPC1768
 RTOS:Mbed OS
 
