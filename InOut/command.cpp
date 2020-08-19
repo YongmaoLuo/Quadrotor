@@ -11,14 +11,51 @@ ppm_pwm_command::ppm_pwm_command(PinName in1, PinName out1, PinName out2,
     this->motor2=new PwmOut(out2);
     this->motor3=new PwmOut(out3);
     this->motor4=new PwmOut(out4);
-    this->motor1->period_us(20000);
-    this->motor2->period_us(20000);
-    this->motor3->period_us(20000);
-    this->motor4->period_us(20000);
-    this->motor1->pulsewidth_us(0);
-    this->motor2->pulsewidth_us(0);
-    this->motor3->pulsewidth_us(0);
-    this->motor4->pulsewidth_us(0);
+
+    this->motor1->period_us(5000);
+    this->motor2->period_us(5000);
+    this->motor3->period_us(5000);
+    this->motor4->period_us(5000);
+    /* // 不能在代码中直接放入校准代码，虽然省事，但是容易在飞行器运行过程中再次初始化时出现意外。
+    Timer max_cali;
+    max_cali.start();
+    while(max_cali.elapsed_time().count()<=3000000){
+    this->motor1->pulsewidth_us(2000);
+    this->motor2->pulsewidth_us(2000);
+    this->motor3->pulsewidth_us(2000);
+    this->motor4->pulsewidth_us(2000);
+    }
+    max_cali.reset();
+    while(max_cali.elapsed_time().count()<=3000000){
+        this->motor1->pulsewidth_us(1000);
+        this->motor2->pulsewidth_us(1000);
+        this->motor3->pulsewidth_us(1000);
+        this->motor4->pulsewidth_us(1000);
+    }
+    max_cali.stop();
+    */
+    Timer max_cali;
+    max_cali.start();
+    while(max_cali.elapsed_time().count()<=6000000){
+        this->motor1->pulsewidth_us(1000);
+        this->motor2->pulsewidth_us(1000);
+        this->motor3->pulsewidth_us(1000);
+        this->motor4->pulsewidth_us(1000);
+    }
+    max_cali.stop();
+}
+
+void ppm_pwm_command::Receive_PPM_Initialize() {
+    // 保证从第一个上升沿开始计数，否则第一个计时内容不准
+    int ppm_num = this->ppm_in->read();
+    // 之所以要检测下降沿是要确保之后的变化一定上升沿
+    while (ppm_num) {
+        ppm_num = this->ppm_in->read();
+    }
+    while (!ppm_num) {
+        ppm_num = this->ppm_in->read();
+    }
+    this->timer_ppm.start();
 }
 
 void ppm_pwm_command::Receive_PPM() {
@@ -32,7 +69,7 @@ void ppm_pwm_command::Receive_PPM() {
         ppm_num = this->ppm_in->read();
     }
     this->timer_ppm.start();
-    while (true) {
+    while(true){
         // 之所以要检测下降沿是要确保之后的变化一定上升沿
         while (ppm_num) {
             ppm_num = this->ppm_in->read();
@@ -52,6 +89,7 @@ void ppm_pwm_command::Store_Channel() {
     if (time > 3000) { // 说明刚刚经过一个周期末尾的空白阶段
         if (this->current_channel == PPM_CHANNELS) {
             this->state = true;
+            //printf("channel4: %lld\n",this->channels[4]);
         }
         this->current_channel = 0;
     } else if (this->current_channel >= PPM_CHANNELS) {
@@ -64,25 +102,56 @@ void ppm_pwm_command::Store_Channel() {
 }
 
 double ppm_pwm_command::Get_Roll_Command(){//输出滚转角
-    return (this->channels[0]-1500)*5/500;
+    return (this->channels[0]-1500)*15/500.0;
 }
 
 double ppm_pwm_command::Get_Pitch_Command(){
-    return (this->channels[1]-1500)*5/500;
+    return (this->channels[1]-1500)*15/500.0;
 }
 
 double ppm_pwm_command::Get_Yaw(){
-    return (this->channels[3]-1500)*10/500;
+    return (this->channels[3]-1500)*10/500.0;
 }
 
-double ppm_pwm_command::Get_Throttle(){
-    return this->channels[2];
+int ppm_pwm_command::Get_Throttle(){
+    
+    return double(this->channels[2]);
+    
 }
 
-void ppm_pwm_command::Output_To_Motor(double throttle,double pitch,double roll,double yaw){
-    this->motor1->pulsewidth_us(throttle+pitch+roll-yaw);
-    this->motor2->pulsewidth_us(throttle+pitch-roll+yaw);
-    this->motor3->pulsewidth_us(throttle-pitch-roll-yaw);
-    this->motor4->pulsewidth_us(throttle-pitch+roll+yaw);
-    printf("%f,%f,%f,%f\n",throttle+pitch+roll-yaw,throttle+pitch-roll+yaw,throttle-pitch-roll-yaw,throttle-pitch+roll+yaw);
+void ppm_pwm_command::Output_To_Motor(int throttle,double pitch,double roll,double yaw){
+    if(pitch>0){
+        pitch+=0.5;
+    }else{
+        pitch-=0.5;
+    }
+
+    if(roll>0){
+        roll+=0.5;
+    }else{
+        roll-=0.5;
+    }
+
+    if(yaw>0){
+        yaw+=0.5;
+    }else{
+        yaw-=0.5;
+    }
+
+    int motor1_pulse=throttle+int(pitch+0.5)+int(roll+0.5)-int(yaw+0.5);
+    int motor2_pulse=throttle+int(pitch+0.5)-int(roll+0.5)+int(yaw+0.5);
+    int motor3_pulse=throttle-int(pitch+0.5)-int(roll+0.5)-int(yaw+0.5);
+    int motor4_pulse=throttle-int(pitch+0.5)+int(roll+0.5)+int(yaw+0.5);
+    this->motor1->pulsewidth_us(motor1_pulse);
+    this->motor2->pulsewidth_us(motor2_pulse);
+    this->motor3->pulsewidth_us(motor3_pulse);
+    this->motor4->pulsewidth_us(motor4_pulse);
+    //printf("motor: %d,%d,%d,%d\n",motor1_pulse,motor2_pulse,motor3_pulse,motor4_pulse);
+}
+
+bool ppm_pwm_command::Get_Fly_Allowance(){
+    if(this->channels[4]>1500){
+        return true;
+    }
+    return false;
 }

@@ -5,17 +5,31 @@ void gesture_control::Angle_PID(double expect_roll,double expect_pitch,double ac
 
     // 获得误差值
     double e_roll=expect_roll-actual_roll;
-    double e_pitch=expect_pitch=actual_pitch;
+    double e_pitch=expect_pitch-actual_pitch;
 
     // 获得误差积分
-    this->i_e_roll+=e_roll*ANGLE_KI;
-    this->i_e_pitch+=e_pitch*ANGLE_KI;
+    //this->i_e_roll+=e_roll*ANGLE_KI;
+    //this->i_e_pitch+=e_pitch*ANGLE_KI;
 
-    double d_e_roll=e_roll-this->last_e_roll;
-    double d_e_pitch=e_pitch-this->last_e_pitch;
+    double d_e_roll=-actual_roll_speed/ANGLE_PID_FREQUENCY*1.0f;
+    double d_e_pitch=-actual_pitch_speed/ANGLE_PID_FREQUENCY*1.0f;
 
-    this->output_roll=ANGLE_KP*e_roll+this->i_e_roll+d_e_roll*ANGLE_KD;
-    this->output_pitch=ANGLE_KP*e_pitch+this->i_e_pitch+d_e_pitch*ANGLE_KD;
+    double satu_output_roll=ANGLE_KP*e_roll+d_e_roll*ANGLE_KD;
+    double satu_output_pitch=ANGLE_KP*e_pitch+d_e_pitch*ANGLE_KD;
+
+    if(satu_output_roll>100){
+        satu_output_roll=100;
+    }else if(satu_output_roll<-100){
+        satu_output_roll=-100;
+    }
+    
+    if(satu_output_pitch>100){
+        satu_output_pitch=100;
+    }else if(satu_output_pitch<-100){
+        satu_output_pitch=-100;
+    }
+    this->output_roll=satu_output_roll;
+    this->output_pitch=satu_output_pitch;
 
     this->last_e_roll=e_roll;
     this->last_e_pitch=e_pitch;
