@@ -5,7 +5,7 @@
 #include "../InOut/command.h"
 #include "../InOut/imu.h"
 
-#define ANGLE_KP 0.5f
+#define ANGLE_KP 2.5f
 #define ANGLE_KI 0.0005f
 #define ANGLE_KD 20.0f
 #define ANGLE_PID_FREQUENCY 200.0f // 200Hz的PID控制频率

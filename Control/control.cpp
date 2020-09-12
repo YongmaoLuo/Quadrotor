@@ -17,16 +17,16 @@ void gesture_control::Angle_PID(double expect_roll,double expect_pitch,double ac
     double satu_output_roll=ANGLE_KP*e_roll+d_e_roll*ANGLE_KD;
     double satu_output_pitch=ANGLE_KP*e_pitch+d_e_pitch*ANGLE_KD;
 
-    if(satu_output_roll>100){
-        satu_output_roll=100;
-    }else if(satu_output_roll<-100){
-        satu_output_roll=-100;
+    if(satu_output_roll>150){
+        satu_output_roll=150;
+    }else if(satu_output_roll<-150){
+        satu_output_roll=-150;
     }
     
-    if(satu_output_pitch>100){
-        satu_output_pitch=100;
-    }else if(satu_output_pitch<-100){
-        satu_output_pitch=-100;
+    if(satu_output_pitch>150){
+        satu_output_pitch=150;
+    }else if(satu_output_pitch<-150){
+        satu_output_pitch=-150;
     }
     this->output_roll=satu_output_roll;
     this->output_pitch=satu_output_pitch;

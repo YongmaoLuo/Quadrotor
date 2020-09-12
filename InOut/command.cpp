@@ -45,19 +45,6 @@ ppm_pwm_command::ppm_pwm_command(PinName in1, PinName out1, PinName out2,
     max_cali.stop();
 }
 
-void ppm_pwm_command::Receive_PPM_Initialize() {
-    // 保证从第一个上升沿开始计数，否则第一个计时内容不准
-    int ppm_num = this->ppm_in->read();
-    // 之所以要检测下降沿是要确保之后的变化一定上升沿
-    while (ppm_num) {
-        ppm_num = this->ppm_in->read();
-    }
-    while (!ppm_num) {
-        ppm_num = this->ppm_in->read();
-    }
-    this->timer_ppm.start();
-}
-
 void ppm_pwm_command::Receive_PPM() {
     // 保证从第一个上升沿开始计数，否则第一个计时内容不准
     int ppm_num = this->ppm_in->read();
@@ -70,6 +57,7 @@ void ppm_pwm_command::Receive_PPM() {
     }
     this->timer_ppm.start();
     while(true){
+        
         // 之所以要检测下降沿是要确保之后的变化一定上升沿
         while (ppm_num) {
             ppm_num = this->ppm_in->read();
@@ -77,46 +65,63 @@ void ppm_pwm_command::Receive_PPM() {
         while (!ppm_num) {
             ppm_num = this->ppm_in->read();
         }
+
         // 跳出循环说明收到高电平，此时是上升沿
         this->Store_Channel();
+        //ppm_in->rise(&this->Store_Channel);
     }
 }
 
 void ppm_pwm_command::Store_Channel() {
-    int64_t time =
-        this->timer_ppm.elapsed_time().count(); // 不能让timer停下来，否则就是0
-    this->timer_ppm.reset();
+    int64_t time =timer_ppm.elapsed_time().count(); // 不能让timer停下来，否则就是0
+    timer_ppm.reset();
     if (time > 3000) { // 说明刚刚经过一个周期末尾的空白阶段
-        if (this->current_channel == PPM_CHANNELS) {
-            this->state = true;
-            //printf("channel4: %lld\n",this->channels[4]);
+        if (current_channel == PPM_CHANNELS) {
+            state = true;
+            //printf("%lld %lld %lld %lld\n",channels[0],channels[1],channels[2],channels[3]);
         }
-        this->current_channel = 0;
-    } else if (this->current_channel >= PPM_CHANNELS) {
+        current_channel = 0;
+    } else if (current_channel >= PPM_CHANNELS) {
         printf("system channel numbers are small!\n");
-        this->current_channel = 0;
+        current_channel = 0;
     } else {
-        this->channels[this->current_channel] = time;
-        this->current_channel = this->current_channel + 1;
+        ch_lock[current_channel].lock();
+        channels[current_channel] = time;
+        ch_lock[current_channel].unlock();
+        current_channel = current_channel + 1;
     }
 }
 
 double ppm_pwm_command::Get_Roll_Command(){//输出滚转角
-    return (this->channels[0]-1500)*15/500.0;
+    double result;
+    ch_lock[0].lock();
+    result=(this->channels[0]-1500)*15/500.0;
+    ch_lock[0].unlock();
+    return result;
 }
 
 double ppm_pwm_command::Get_Pitch_Command(){
-    return (this->channels[1]-1500)*15/500.0;
+    double result;
+    ch_lock[1].lock();
+    result=(this->channels[1]-1500)*15/500.0;
+    ch_lock[1].unlock();
+    return result;
 }
 
 double ppm_pwm_command::Get_Yaw(){
-    return (this->channels[3]-1500)*10/500.0;
+    double result;
+    ch_lock[3].lock();
+    result=(this->channels[3]-1500)*10/500.0;
+    ch_lock[3].unlock();
+    return result;
 }
 
 int ppm_pwm_command::Get_Throttle(){
-    
-    return double(this->channels[2]);
-    
+    double result;
+    ch_lock[2].lock();
+    result=this->channels[2];
+    ch_lock[2].unlock();
+    return result;
 }
 
 void ppm_pwm_command::Output_To_Motor(int throttle,double pitch,double roll,double yaw){
