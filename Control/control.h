@@ -21,7 +21,7 @@ class gesture_control {
     double i_e_roll=0,i_e_pitch=0;//积分项
     double output_roll=0,output_pitch=0;
 public:
-    void Angle_PID(double expect_roll,double expect_pitch,double actual_roll,double actual_pitch,double actual_roll_speed,double actual_pitch_speed);
+    void Angle_PID(double expect_roll,double expect_pitch,double actual_roll,double actual_pitch, double actual_yaw,double actual_roll_speed,double actual_pitch_speed);
     void Angle_Velocity_PID();
     double Get_OutPut_Roll();
     double Get_OutPut_Pitch();
