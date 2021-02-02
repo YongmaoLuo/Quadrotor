@@ -1,22 +1,25 @@
 #include "./Control/control.h"
 #include "./InOut/command.h"
-#include "./InOut/imu.h" 
+#include "./InOut/imu.h"
 #include "mbed.h"
 #include <map>
+//#include <atomic>
 
-#define NEED_CHANNELS 5
 #define MAHONY_INITIAL_READ_TIMES 100
 
-#define THREAD_MAHONY 0
-#define THREAD_ACC 1
-#define THREAD_GYR 2
-#define THREAD_PID 3
-#define THREAD_MOTOR 4
-#define THREAD_NUMBER 5
+void OS_Init();
+void IMU_Init();
+void Thread_Init();
+void Task_Receive_PPM();
+void Task_Mahony();
+void Task_ACC();
+void Task_GYR();
+void Task_Series_PID();
+void Task_Motor();
 
-//system's classes
+// system's classes
 BufferedSerial pc(USBTX, USBRX);
-DigitalOut normal_state(LED4),wrong_led(LED2);
+DigitalOut normal_state(LED4), wrong_led(LED2);
 FileHandle *mbed::mbed_override_console(int fd) { return &pc; }
 
 // own classes
@@ -29,154 +32,215 @@ Timer ppm_pwm_command::timer_ppm;
 int ppm_pwm_command::current_channel;
 int64_t ppm_pwm_command::channels[PPM_CHANNELS + 1];
 bool ppm_pwm_command::state;
-Mutex ppm_pwm_command::ch_lock[PPM_CHANNELS];
+PwmOut *ppm_pwm_command::motor1, *ppm_pwm_command::motor2,
+    *ppm_pwm_command::motor3, *ppm_pwm_command::motor4;
+
+// instantiate the static members of class "imu"
+I2C *imu::i2c_imu;
+char imu::acc_data[7], imu::gyr_data[7]; //加速度计三轴加速度
+Mutex imu::gyr_lock;
+Mutex imu::acc_lock;
+Mutex imu::roll_lock, imu::pitch_lock, imu::yaw_lock;
+float imu::q0, imu::q1, imu::q2, imu::q3; //表示整个旋转的四元数
+float imu::exInt, imu::eyInt, imu::ezInt; //加速度计和陀螺仪之间的测量误差
+float imu::roll, imu::pitch, imu::yaw, imu::last_roll, imu::last_pitch,
+    imu::last_yaw;
+float imu::gyr_offsetx, imu::gyr_offsety,
+    imu::gyr_offsetz; //陀螺仪三轴角速度，和三轴初始误差
+
+// instantiate the static members of class "gesture_control"
+float gesture_control::output_roll, gesture_control::output_pitch;
+float gesture_control::i_roll_speed, gesture_control::i_pitch_speed;
+float gesture_control::last_roll_speed, gesture_control::last_pitch_speed;
+float gesture_control::output_roll_speed, gesture_control::output_pitch_speed;
+Mutex gesture_control::roll_speed_lock, gesture_control::pitch_speed_lock;
 
 // Scheduling part
-struct OSTCB{
-    int os_tcb_delay;
-    Thread os_task_thread;
-};
-OSTCB task_receive_ppm,task_mahony,task_acc,task_gyr,task_pid,task_motor;
-EventQueue queue;
-int thread_delayed_time[THREAD_NUMBER];
-osPriority_t os_priority_now;
-//std::map<osPriority_t,>
-Thread thread_receive_ppm(osPriorityNormal7),thread_mahony(osPriorityNormal6),
-    thread_acc(osPriorityNormal5),thread_gyr(osPriorityNormal5),
-    thread_pid(osPriorityNormal4),thread_motor(osPriorityNormal4);
+std::map<osPriority_t, Thread *> thread_map;
+std::map<osPriority_t, EventQueue *> queue_map;
 
-void OS_Time_Tick(){
-    for(int i=0;i<THREAD_NUMBER;i++){
-        thread_delayed_time[i]--;
-        if(thread_delayed_time[i]==0){
-            switch(i){
-                case 0:
-                    if(os_priority_now<osPriorityNormal7){
-
-                    }
-                    thread_delayed_time[i]=4;
-                    break;
-                case 1: 
-                    thread_delayed_time[i] = 5;
-                    break;
-                case 2: 
-                    thread_delayed_time[i]= 4;
-                    break;
-                case 3: 
-                    thread_delayed_time[i]= 20;
-                    break;
-                case 4: 
-                    thread_delayed_time[i]= 20;
-                    break;
-            }
-        }
-    }
+void IRQ_Receive_PPM() {
+    queue_map[osPriorityBelowNormal7]->call(&Task_Receive_PPM);
 }
 
-int Thread_200Hz() {
-    
+void IRQ_ACC() { queue_map[osPriorityBelowNormal7]->call(&Task_ACC); }
+
+void IRQ_GYR() { queue_map[osPriorityBelowNormal7]->call(&Task_GYR); }
+
+void IRQ_Motor() { queue_map[osPriorityBelowNormal6]->call(&Task_Motor); }
+
+void IRQ_Mahony() { queue_map[osPriorityBelowNormal5]->call(&Task_Mahony); }
+
+void IRQ_Series_PID() {
+    queue_map[osPriorityBelowNormal5]->call(&Task_Series_PID);
+}
+
+void Task_Receive_PPM() {
+    thisCommand.Store_Channel();
+    queue_map[osPriorityBelowNormal4]->call(printf, "%f\n",
+                                            thisCommand.Get_Throttle());
+    // queue_map[osPriorityBelowNormal4]->call(printf,"task receive ppm is
+    // running!\n");
+}
+
+void Task_Mahony() {
+    thisIMU.Mahony_Filter_Update();
+    // queue_map[osPriorityBelowNormal4]->call(printf,"task mahony is
+    // running!\n"); queue_map[osPriorityBelowNormal4]->call(printf,"%f, %f,
+    // %f\n",thisIMU.Get_Roll(),thisIMU.Get_Pitch(),thisIMU.Get_Yaw());
+}
+
+void Task_ACC() {
+    thisIMU.ADXL345_ReadData();
+    // queue_map[osPriorityBelowNormal4]->call(printf,"task acc is running!\n");
+}
+
+void Task_GYR() { thisIMU.ITG3205_ReadData(); }
+
+void Task_Series_PID() {
     thisGesture.Angle_PID(thisCommand.Get_Roll_Command(),
                           thisCommand.Get_Pitch_Command(), thisIMU.Get_Roll(),
-                          thisIMU.Get_Pitch(), thisIMU.Get_Roll_Speed(),
-                          thisIMU.Get_Pitch_Speed());
-    if(thisCommand.Get_Fly_Allowance()){
-        thisCommand.Output_To_Motor(
-        thisCommand.Get_Throttle(), thisGesture.Get_OutPut_Pitch(),
-        thisGesture.Get_OutPut_Roll(), thisCommand.Get_Yaw());
-    }else{
-        thisCommand.Output_To_Motor(950, 0,0, 0);
+                          thisIMU.Get_Pitch());
+    thisGesture.Angle_Velocity_PID(thisIMU.Get_Roll_Speed(),
+                                   thisIMU.Get_Pitch_Speed());
+}
+
+void Task_Motor() {
+    if (thisCommand.Get_Fly_Allowance()) {
+        thisCommand.Output_To_Motor(thisGesture.Get_OutPut_Pitch_Speed(),
+                                    thisGesture.Get_OutPut_Roll_Speed());
+    } else {
+        thisCommand.Output_To_Motor(0, 0);
     }
-    printf("%d,%f,%f,%f\n",thisCommand.Get_Throttle(),thisGesture.Get_OutPut_Pitch(),thisGesture.Get_OutPut_Roll(),thisCommand.Get_Yaw());
-
-    //return ok;
-    
+    // printf("%d,%f,%f,%f\n",thisCommand.Get_Throttle(),thisGesture.Get_OutPut_Pitch_Speed(),thisGesture.Get_OutPut_Roll_Speed(),thisCommand.Get_Yaw());
 }
 
-int Thread_800Hz() {
-    // 不断读取加速度计的数据
-    int ok=thisIMU.ADXL345_ReadData();
-    return ok;
+void IRQ_Task_Pool_Start_PN7() {
+    queue_map[osPriorityBelowNormal7]->dispatch_forever();
 }
 
-int Thread_1000Hz(){
-    // read data from gyroscope
-    int ok=thisIMU.ITG3205_ReadData();
-    return ok;
+void IRQ_Task_Pool_Start_PN6() {
+    queue_map[osPriorityBelowNormal6]->dispatch_forever();
 }
 
-void Thread_5000Hz(){
-    // update attitude
-    thisIMU.Mahony_Filter_Update();
-    //thisIMU.Traditional_Linear_Filter_Update();
-    printf("roll: %f, pitch: %f, yaw: %f\n", thisIMU.Get_Roll(),thisIMU.Get_Pitch(), thisIMU.Get_Yaw());
-    return;
+void IRQ_Task_Pool_Start_PN5() {
+    queue_map[osPriorityBelowNormal5]->dispatch_forever();
 }
 
-void receive_ppm_thread() { 
-    ppm_pwm_command::Store_Channel();
+void IRQ_Task_Pool_Start_PN4() {
+    queue_map[osPriorityBelowNormal4]->dispatch_forever();
 }
 
-void OS_Init(){
-    wrong_led=0;
-    normal_state=0;
-    pc.set_baud(9600);
+// main() runs in its own thread in the OS
+int main() {
+    OS_Init();
+    printf("os init completed\n");
 
+    // threads to schedule tasks
+    thread_map[osPriorityBelowNormal7]->start(callback(
+        queue_map[osPriorityBelowNormal7], &EventQueue::dispatch_forever));
+    thread_map[osPriorityBelowNormal6]->start(callback(
+        queue_map[osPriorityBelowNormal6], &EventQueue::dispatch_forever));
+    thread_map[osPriorityBelowNormal5]->start(callback(
+        queue_map[osPriorityBelowNormal5], &EventQueue::dispatch_forever));
+    thread_map[osPriorityBelowNormal4]->start(callback(
+        queue_map[osPriorityBelowNormal4], &EventQueue::dispatch_forever));
+    printf("thread started\n");
+
+    thisCommand.Initializing_Receiving_PPM();
+    printf("init receiving ppm success\n");
+    thisCommand.ppm_in->rise(
+        queue_map[osPriorityBelowNormal7]->event(Task_Receive_PPM));
+    printf("begin receiving\n");
+
+    // interrupt periodically to create tasks
+    Ticker ticker_mahony, ticker_acc, ticker_gyr, ticker_pid, ticker_motor;
+
+    ticker_mahony.attach(queue_map[osPriorityBelowNormal5]->event(Task_Mahony),
+                         2000us);
+    ticker_pid.attach(queue_map[osPriorityBelowNormal5]->event(Task_Series_PID),
+                      5000us);
+    ticker_motor.attach(queue_map[osPriorityBelowNormal6]->event(Task_Motor),
+                        5000us);
+    ticker_acc.attach(queue_map[osPriorityBelowNormal7]->event(Task_ACC),
+                      1250us);
+    ticker_gyr.attach(queue_map[osPriorityBelowNormal7]->event(Task_GYR),
+                      1000us);
+
+    normal_state = 1;
+
+    // while(1){}
+
+    thread_map[osPriorityBelowNormal7]->join();
+    thread_map[osPriorityBelowNormal6]->join();
+    thread_map[osPriorityBelowNormal5]->join();
+    thread_map[osPriorityBelowNormal4]->join();
+}
+
+void IMU_Init() {
     // IMU initialization and calibration
     int ok = 0;
     ok = thisIMU.ADXL345_Initialize();
-    ok=thisIMU.ADXL345_Calibration();
+    ok = thisIMU.ADXL345_Calibration();
     ok = thisIMU.ITG3205_Initialize();
     ok = thisIMU.ITG3205_Calibration();
     if (ok != 0) {
         while (true) {
             ok = thisIMU.ADXL345_Initialize();
             ok = thisIMU.ITG3205_Initialize();
-            wrong_led=1;
+            wrong_led = 1;
         }
     }
     Timer temp_timer;
-    int adxl_read_times=0;
-    double average_acc_x=0,average_acc_y=0,average_acc_z=-1;
+    int adxl_read_times = 0;
+    double average_acc_x = 0, average_acc_y = 0, average_acc_z = -1;
     temp_timer.start();
-    
-    while(1){
-        if(temp_timer.elapsed_time().count()>=10000){
+    while (1) {
+        if (temp_timer.elapsed_time().count() >= 10000) {
             temp_timer.reset();
             adxl_read_times++;
             thisIMU.ADXL345_ReadData();
-            average_acc_x+=thisIMU.Get_ACC_X();
-            average_acc_y+=thisIMU.Get_ACC_Y();
-            average_acc_z+=thisIMU.Get_ACC_Z();
+            average_acc_x += thisIMU.Get_ACC_X();
+            average_acc_y += thisIMU.Get_ACC_Y();
+            average_acc_z += thisIMU.Get_ACC_Z();
         }
-        if(adxl_read_times>=MAHONY_INITIAL_READ_TIMES){
+        if (adxl_read_times >= MAHONY_INITIAL_READ_TIMES) {
             temp_timer.stop();
             break;
         }
     }
-    average_acc_x/=MAHONY_INITIAL_READ_TIMES;
-    average_acc_y/=MAHONY_INITIAL_READ_TIMES;
-    average_acc_z/=MAHONY_INITIAL_READ_TIMES;
+    average_acc_x /= MAHONY_INITIAL_READ_TIMES;
+    average_acc_y /= MAHONY_INITIAL_READ_TIMES;
+    average_acc_z /= MAHONY_INITIAL_READ_TIMES;
 
-    thisIMU.Mahony_Filter_Init(average_acc_x,average_acc_y,average_acc_z);
+    thisIMU.Mahony_Filter_Init(average_acc_x, average_acc_y, average_acc_z);
 }
 
-// main() runs in its own thread in the OS
-int main() {
-    OS_Init();
-    
-    // set time delay for each task
-    thread_delayed_time[THREAD_MAHONY]=4;
-    thread_delayed_time[THREAD_ACC]=5;
-    thread_delayed_time[THREAD_GYR]=4;
-    thread_delayed_time[THREAD_PID]=20;
-    thread_delayed_time[THREAD_MOTOR]=20;
+void Thread_Init() {
+    // set event queue
+    queue_map[osPriorityBelowNormal7] = new EventQueue(EVENTS_QUEUE_SIZE);
+    queue_map[osPriorityBelowNormal6] = new EventQueue(EVENTS_QUEUE_SIZE);
+    queue_map[osPriorityBelowNormal5] = new EventQueue(EVENTS_QUEUE_SIZE);
+    queue_map[osPriorityBelowNormal4] =
+        new EventQueue(15 * 4 * 10); // printf has two arguments
 
-    Ticker ticker_250us;
-    ticker_250us.attach(&OS_Time_Tick, 250us);
-    
-    normal_state=1;
-    while (true) {
-        
-    }
+    thread_map[osPriorityBelowNormal7] =
+        new Thread(osPriorityBelowNormal7,
+                   EVENTS_QUEUE_SIZE + sizeof(mbed::Callback<void()>));
+    thread_map[osPriorityBelowNormal6] =
+        new Thread(osPriorityBelowNormal6,
+                   EVENTS_QUEUE_SIZE + sizeof(mbed::Callback<void()>));
+    thread_map[osPriorityBelowNormal5] =
+        new Thread(osPriorityBelowNormal5,
+                   EVENTS_QUEUE_SIZE + sizeof(mbed::Callback<void()>));
+    thread_map[osPriorityBelowNormal4] =
+        new Thread(osPriorityBelowNormal4,
+                   EVENTS_QUEUE_SIZE + sizeof(mbed::Callback<void()>));
+}
 
+void OS_Init() {
+
+    pc.set_baud(9600);
+    IMU_Init();
+    Thread_Init();
 }

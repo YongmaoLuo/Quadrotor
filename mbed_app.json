@@ -4,7 +4,8 @@
             "target.printf_lib": "minimal-printf",
             "platform.minimal-printf-enable-floating-point": true,
             "platform.minimal-printf-set-floating-point-max-decimals": 10,
-            "platform.minimal-printf-enable-64-bit": true
+            "platform.minimal-printf-enable-64-bit": true,
+            "platform.callback-nontrivial": true
         }
     }
 }

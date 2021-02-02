@@ -1,57 +1,81 @@
 #include "control.h"
 #include "mbed.h"
 
-void gesture_control::Angle_PID(double expect_roll,double expect_pitch,double actual_roll,double actual_pitch, double actual_yaw, double actual_roll_speed,double actual_pitch_speed){
-    /*
-    // 默认无头模式
-    double head_hold=0;
-    
-    // 计算偏航角的偏差角度，然后用来得到实际的目标roll和pitch
-    double rad_yaw_diff = (actual_yaw - headHold) * PI / 180.0f;
-    double cos_yaw_diff = cosf(rad_yaw_diff);
-    double sin_yaw_diff = sinf(rad_yaw_diff);
-    double target_pitch_free = expect_pitch * cos_yaw_diff + expect_roll * sin_yaw_diff;
-    
-    expect_roll=expect_roll * cos_yaw_diff - expect_pitch * sin_yaw_diff;
-    expect_pitch=target_pitch_free;
-    */
+gesture_control::gesture_control(){
+    output_roll=0,output_pitch=0;
+    i_roll_speed=0,i_pitch_speed=0;
+    last_roll_speed=0,last_pitch_speed=0;
+}
 
+void gesture_control::Angle_PID(float expect_roll,float expect_pitch,float actual_roll,float actual_pitch){
+    
     // 获得误差值
-    double e_roll=expect_roll-actual_roll;
-    double e_pitch=expect_pitch-actual_pitch;
+    float e_roll=expect_roll-actual_roll;
+    float e_pitch=expect_pitch-actual_pitch;
 
-    // 获得误差积分
-    this->i_e_roll+=e_roll*ANGLE_KI;
-    this->i_e_pitch+=e_pitch*ANGLE_KI;
+    float satu_output_roll=ANGLE_KP*e_roll;
+    float satu_output_pitch=ANGLE_KP*e_pitch;
 
-    double d_e_roll=-actual_roll_speed/ANGLE_PID_FREQUENCY*1.0f;
-    double d_e_pitch=-actual_pitch_speed/ANGLE_PID_FREQUENCY*1.0f;
+    output_roll=satu_output_roll;
+    output_pitch=satu_output_pitch;
+}
 
-    double satu_output_roll=ANGLE_KP*e_roll+d_e_roll*ANGLE_KD;
-    double satu_output_pitch=ANGLE_KP*e_pitch+d_e_pitch*ANGLE_KD;
+void gesture_control::Angle_Velocity_PID(float actual_roll_speed,float actual_pitch_speed){
+    float e_roll_speed=output_roll-actual_roll_speed;
+    float e_pitch_speed=output_pitch-actual_pitch_speed;
+    float d_roll_speed,d_pitch_speed;
 
-    if(satu_output_roll>150){
-        satu_output_roll=150;
-    }else if(satu_output_roll<-150){
-        satu_output_roll=-150;
+    i_roll_speed+=e_roll_speed/PID_FREQUENCY;
+    i_pitch_speed+=e_pitch_speed/PID_FREQUENCY;
+
+    if(last_roll_speed==0){
+        d_roll_speed=0;
+    }else{
+        d_roll_speed=(actual_roll_speed-last_roll_speed)*PID_FREQUENCY;
+    }
+    if(last_pitch_speed==0){
+        d_pitch_speed=0;
+    }else{
+        d_pitch_speed=(actual_pitch_speed-last_pitch_speed)*PID_FREQUENCY;
+    }
+
+    double temp_roll_speed=ANGLE_VELOCITY_KP*e_roll_speed+i_roll_speed*ANGLE_VELOCITY_KI+d_roll_speed*ANGLE_VELOCITY_KD;
+    double temp_pitch_speed=ANGLE_VELOCITY_KP*e_pitch_speed+i_pitch_speed*ANGLE_VELOCITY_KI+d_pitch_speed*ANGLE_VELOCITY_KD;
+
+    if(temp_roll_speed>100){
+        temp_roll_speed=100;
+    }else if(temp_roll_speed<-150){
+        temp_roll_speed=-150;
     }
     
-    if(satu_output_pitch>150){
-        satu_output_pitch=150;
-    }else if(satu_output_pitch<-150){
-        satu_output_pitch=-150;
+    if(temp_pitch_speed>150){
+        temp_pitch_speed=150;
+    }else if(temp_pitch_speed<-150){
+        temp_pitch_speed=-150;
     }
-    this->output_roll=satu_output_roll;
-    this->output_pitch=satu_output_pitch;
 
-    this->last_e_roll=e_roll;
-    this->last_e_pitch=e_pitch;
+    roll_speed_lock.lock();pitch_speed_lock.lock();
+    output_roll_speed=temp_roll_speed;
+    output_pitch_speed=temp_pitch_speed;
+    roll_speed_lock.unlock();pitch_speed_lock.unlock();
+
+    last_roll_speed=actual_roll_speed;
+    last_pitch_speed=actual_pitch_speed;
+
 }
 
-double gesture_control::Get_OutPut_Roll(){
-    return this->output_roll;
+float gesture_control::Get_OutPut_Roll_Speed(){
+    double result;
+    roll_speed_lock.lock();
+    result=output_roll_speed;
+    roll_speed_lock.unlock();
+    return result;
 }
 
-double gesture_control::Get_OutPut_Pitch(){
-    return this->output_pitch;
+float gesture_control::Get_OutPut_Pitch_Speed(){
+    double result;
+    pitch_speed_lock.lock();
+    result=output_pitch_speed;
+    pitch_speed_lock.unlock();
+    return result;
 }

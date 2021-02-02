@@ -1,10 +1,13 @@
 #include "imu.h"
 #include "mbed.h"
-#include <cstdio>
+#include <cstring>
 
-float invSqrt(float x);
+float Invert_Sqrt(float x);
 
 imu::imu(PinName sda, PinName scl) {
+    acc_data[6]=0;gyr_data[6]=0;
+    this->q0=1;this->q1=0;this->q2=0;this->q3=0;
+    gyr_offsetx = gyr_offsety=gyr_offsetz=0;
     this->i2c_imu = new I2C(sda, scl);
     this->i2c_imu->frequency(400000);
 }
@@ -52,110 +55,14 @@ int imu::ADXL345_Initialize() {
 
 int imu::ADXL345_ReadData() {
     int ok = 0;
-    char read_data[6], register_address;
-    memset(read_data, 0, sizeof(char[6]));
+    char register_address;
     // read DATA
     register_address = 0x32; // DATAX0寄存器地址
-    ok = i2c_imu->write(ADXL345_ADDRESS_8BITS, &register_address,
-                        true); //设置要读取的寄存器首地址
-    if (ok != 0) {
-        printf("set read register failed!\n");
-        return ok;
-    }
-    ok = i2c_imu->read(ADXL345_ADDRESS_8BITS, read_data, 6, true);
-    if (ok != 0) {
-        printf("read data failed!\n");
-        return ok;
-    }
-
-    uint16_t read_x_uint, read_y_uint, read_z_uint;
-
-    float xt, yt, zt;
-
-    //防止不同编译器对char的解释不同，我们采用判断的方法将原始数据扩展到16位
-    read_x_uint = uint16_t(read_data[1]) << 8 | uint16_t(read_data[0]);
-    read_y_uint = uint16_t(read_data[3]) << 8 | uint16_t(read_data[2]);
-    read_z_uint = uint16_t(read_data[5]) << 8 | uint16_t(read_data[4]);
-    // printf("x:%dy:%dz:%d\n",read_x_uint,read_y_uint,read_z_uint);
-
-    //我们是13位都为有效数据
-    if (read_x_uint > 0x0FFF) {
-        read_x_uint = (~read_x_uint) + 1; //得到这个负数的相反数
-        xt = -(int16_t(read_x_uint) * ADXL345_RATIO);
-    } else {
-        xt = float(float(read_x_uint) * ADXL345_RATIO);
-    }
-    if (read_y_uint > 0x0FFF) {
-        read_y_uint = (~read_y_uint) + 1;
-        yt = -int16_t(read_y_uint) * ADXL345_RATIO;
-    } else {
-        yt = int16_t(read_y_uint) * ADXL345_RATIO;
-    }
-    if (read_z_uint > 0x0FFF) {
-        read_z_uint = (~read_z_uint) + 1;
-        zt = -int16_t(read_z_uint) * ADXL345_RATIO;
-    } else {
-        zt = int16_t(read_z_uint) * ADXL345_RATIO;
-    }
-
-    acc_x_lock.lock();
-    this->acc_x=xt;
-    acc_x_lock.unlock();
-
-    acc_y_lock.lock();
-    this->acc_y=yt;
-    acc_y_lock.unlock();
-
-    acc_z_lock.lock();
-    this->acc_z=zt; 
-    acc_z_lock.unlock();
-
-    // printf("x:%dy:%dz:%d\n",read_x_uint,read_y_uint,read_z_uint);
-    // printf("%f %f %f\n",xt,yt,zt);
-     
-     /* 
-    // 低通滤波
-    this->acc_x=xt*ALPHA+this->acc_x*(1.0-ALPHA);
-    this->acc_y=yt*ALPHA+this->acc_y*(1.0-ALPHA);
-    this->acc_z=zt*ALPHA+this->acc_z*(1.0-ALPHA);
-*/
-/* 
-    //更新之前加速度计储存的矩阵
-    this->before_acc_x[this->before_acc_point_x++]=xt;
-    this->before_acc_y[this->before_acc_point_y++]=yt;
-    this->before_acc_z[this->before_acc_point_z++]=zt;
-
-    this->before_acc_point_x=this->before_acc_point_x%ACC_BEFORE_NUMBER;
-    this->before_acc_point_y=this->before_acc_point_y%ACC_BEFORE_NUMBER;
-    this->before_acc_point_z=this->before_acc_point_z%ACC_BEFORE_NUMBER;
-
-    float aver_acc_x=0,aver_acc_y=0,aver_acc_z=0;
-    for(int i=0;i<ACC_BEFORE_NUMBER;i++){
-        aver_acc_x+=this->before_acc_x[i];
-        aver_acc_y+=this->before_acc_y[i];
-        aver_acc_z+=this->before_acc_z[i];
-    }
-    aver_acc_x/=ACC_BEFORE_NUMBER*1.0f;
-    aver_acc_y/=ACC_BEFORE_NUMBER*1.0f;
-    aver_acc_z/=ACC_BEFORE_NUMBER*1.0f;
-
-    this->acc_x=aver_acc_x;
-    this->acc_y=aver_acc_y;
-    this->acc_z=aver_acc_z;
- 
-    //printf("acc: %f,%f,%f\n",acc_x,acc_y,acc_z);
-    int is_positive_x=1,is_positive_y=1,is_positive_z=1;
-    if(acc_x<0){
-        is_positive_x=0;
-    }
-    if(acc_y<0){
-        is_positive_y=0;
-    }
-    if(acc_z<0){
-        is_positive_z=0;
-    }
-*/
-    //printf("x:%d, y:%d, z:%d\n",is_positive_x,is_positive_y,is_positive_z);
+    ok = i2c_imu->write(ADXL345_ADDRESS_8BITS, &register_address,true); //设置要读取的寄存器首地址
+    acc_lock.lock();
+    ok = i2c_imu->read(ADXL345_ADDRESS_8BITS, acc_data, 6, true);
+    acc_lock.unlock();
+    
     return ok;
 }
 
@@ -199,14 +106,11 @@ int imu::ADXL345_Calibration() {
     average_read_y /= 50.0f;
     average_read_z /= 50.0f;
     //printf("%f, %f, %f\n",average_read_x,average_read_y,average_read_z);
-    //计算偏移量
+    //计算偏移量同时四舍五入
     average_read_x = int(-(average_read_x + 2) / 4);
     average_read_y = int(-(average_read_y + 2) / 4);
-    average_read_z =
-        int(-(average_read_z + 2) /4); // 因为z轴的是向下的，测出的值小于-1，所以偏移量小于0，加上正向偏移量
+    average_read_z =int(-(average_read_z + 2) /4); // 因为z轴的是向下的，测出的值小于-1，所以偏移量小于0，加上正向偏移量
     
-    //四舍五入
-
 
     //写入偏移量
     // standby mode，设置寄存器POWER_CTL测量位为0,方便调试芯片其他参数
@@ -247,7 +151,7 @@ int imu::ADXL345_Calibration() {
         printf("begin measurement failed!\n");
         return ok;
     }
-    printf("The Calibration:%f,%f,%f",average_read_x,average_read_y,average_read_z);   
+    //printf("The Calibration:%f,%f,%f",average_read_x,average_read_y,average_read_z);   
     return ok;
 }
 
@@ -274,68 +178,12 @@ int imu::ITG3205_Initialize() {
 
 int imu::ITG3205_ReadData() {
     int ok = 0;
-    char read_data[6], register_address;
-    memset(read_data, 0, sizeof(char[6]));
+    char register_address;
     // read DATA
     register_address = ITG3205_XH; // XOUTH寄存器地址
     ok = i2c_imu->write(ITG3205_ADDRESS_8BITS, &register_address,1); //设置要读取的寄存器首地址
-    if (ok != 0) {
-        printf("set read register failed!\n");
-        return ok;
-    }
-    ok = i2c_imu->read(ITG3205_ADDRESS_8BITS, read_data, 6, true);
-    if (ok != 0) {
-        printf("read data failed!\n");
-        return ok;
-    }
-
-    float xt,yt,zt;
-    xt =
-        int16_t(read_data[0] << 8 | read_data[1]) / ITG3205_SENSITIVITY -
-        this->gyr_offsetx;
-    yt =
-        int16_t(read_data[2] << 8 | read_data[3]) / ITG3205_SENSITIVITY -
-        this->gyr_offsety;
-    zt =
-        int16_t(read_data[4] << 8 | read_data[5]) / ITG3205_SENSITIVITY -
-        this->gyr_offsetz;
+    ok = i2c_imu->read(ITG3205_ADDRESS_8BITS, gyr_data, 6, true);
     
-    gyr_x_lock.lock();
-    this->gyr_x=xt;
-    gyr_x_lock.unlock();
-
-    gyr_y_lock.lock();
-    this->gyr_y=yt;
-    gyr_y_lock.unlock();
-
-    gyr_z_lock.lock();
-    this->gyr_z=zt;
-    gyr_z_lock.unlock();
-/* 
-    //更新之前加速度计储存的矩阵
-    this->before_gyr_x[this->before_gyr_point_x++]=xt;
-    this->before_gyr_y[this->before_gyr_point_y++]=yt;
-    this->before_gyr_z[this->before_gyr_point_z++]=zt;
-
-    this->before_gyr_point_x=this->before_gyr_point_x%GYR_BEFORE_NUMBER;
-    this->before_gyr_point_y=this->before_gyr_point_y%GYR_BEFORE_NUMBER;
-    this->before_gyr_point_z=this->before_gyr_point_z%GYR_BEFORE_NUMBER;
-
-    float aver_gyr_x=0,aver_gyr_y=0,aver_gyr_z=0;
-    for(int i=0;i<GYR_BEFORE_NUMBER;i++){
-        aver_gyr_x+=this->before_gyr_x[i];
-        aver_gyr_y+=this->before_gyr_y[i];
-        aver_gyr_z+=this->before_gyr_z[i];
-    }
-    aver_gyr_x/=GYR_BEFORE_NUMBER*1.0f;
-    aver_gyr_y/=GYR_BEFORE_NUMBER*1.0f;
-    aver_gyr_z/=GYR_BEFORE_NUMBER*1.0f;
-
-    this->gyr_x=aver_gyr_x;
-    this->gyr_y=aver_gyr_y;
-    this->gyr_z=aver_gyr_z;
- */
-    //printf("%f %f %f\n",gyr_x,gyr_y,gyr_z);
     return ok;
 }
 
@@ -374,7 +222,7 @@ void imu::Mahony_Filter_Init(float ax,float ay,float az) {
     float initial_hdg, cos_heading, sin_heading;
 
     // can be vindicated right by math
-    float norm = invSqrt(ax * ax + ay * ay + az * az);
+    float norm = Invert_Sqrt(ax * ax + ay * ay + az * az);
     float tan_roll=-ay/az;
     initial_roll = atan(tan_roll);
     initial_pitch = asin(ax / norm);
@@ -444,24 +292,33 @@ void imu::Mahony_Filter_Init(float ax,float ay,float az) {
 
 
 void imu::Mahony_Filter_Update() {
-    float gx, gy, gz, ax, ay, az;
+    char acc_raw[7],gyr_raw[7];
+    float ax,ay,az,gx,gy,gz;
     
     float gyr_kp = GYR_KP, gyr_ki = GYR_KI, dt = 1.0 / (SAMPLE_RATE);
-    float m_q0 = this->q0, m_q1 = this->q1, m_q2 = this->q2, m_q3 = this->q3;
+    float m_q0 = q0, m_q1 = q1, m_q2 = q2, m_q3 = q3;
 
-    gyr_x_lock.lock();gyr_y_lock.lock();gyr_z_lock.lock();
-    gx = this->gyr_x;gy = this->gyr_y;gz = this->gyr_z;
-    gyr_x_lock.unlock();gyr_y_lock.unlock();gyr_z_lock.unlock();
+    acc_lock.lock();
+    std::strcpy(acc_raw,acc_data);
+    acc_lock.unlock();
 
-    acc_x_lock.lock();acc_y_lock.lock();acc_z_lock.lock();
-    ax = this->acc_x;ay = this->acc_y;az = this->acc_z;
-    acc_x_lock.unlock();acc_y_lock.unlock();acc_z_lock.unlock();
+    gyr_lock.lock();
+    std::strcpy(gyr_raw,gyr_data);
+    gyr_lock.unlock();
+
+    ax = int16_t(acc_raw[1] << 8 | acc_raw[0])*ADXL345_RATIO;
+    ay = int16_t(acc_raw[3] << 8 | acc_raw[2])*ADXL345_RATIO;
+    az = int16_t(acc_raw[5] << 8 | acc_raw[4])*ADXL345_RATIO;
+
+    gx =int16_t(gyr_raw[0] << 8 | gyr_raw[1]) / ITG3205_SENSITIVITY - gyr_offsetx;
+    gy =int16_t(gyr_raw[2] << 8 | gyr_raw[3]) / ITG3205_SENSITIVITY - gyr_offsety;
+    gz =int16_t(gyr_raw[4] << 8 | gyr_raw[5]) / ITG3205_SENSITIVITY - gyr_offsetz;
 
     if(ax==0.0f&&ay==0.0f&&az==0.0f){
         return;
     }
 
-    float norm = invSqrt(ax * ax + ay * ay + az * az);
+    float norm = Invert_Sqrt(ax * ax + ay * ay + az * az);
     //float norm = sqrt(ax * ax + ay * ay + az * az);
     ax *= norm;
     ay *= norm;
@@ -488,37 +345,18 @@ void imu::Mahony_Filter_Update() {
     
     // 用误差更新误差积分
     if(gyr_ki>0.0f){
-        this->exInt += ex * gyr_ki*(1.0f / SAMPLE_RATE);
-        this->eyInt += ey * gyr_ki*(1.0f / SAMPLE_RATE);
-        this->ezInt += ez * gyr_ki*(1.0f / SAMPLE_RATE);
+        exInt += ex * gyr_ki*(1.0f / SAMPLE_RATE);
+        eyInt += ey * gyr_ki*(1.0f / SAMPLE_RATE);
+        ezInt += ez * gyr_ki*(1.0f / SAMPLE_RATE);
     }else{
-        this->exInt=0.0f;
-        this->eyInt=0.0f;
-        this->ezInt=0.0f;
+        exInt=0.0f;
+        eyInt=0.0f;
+        ezInt=0.0f;
     }
 
- /* 
-    if(this->is_move==false){
-        //利用误差和误差积分（即PI）修正陀螺仪的测量数据
-        //并且增大KP值使其迅速收敛
-        gx += ex*300;
-        gy += ey*300;
-        gz += ez*300;
-
-        this->exInt=0;
-        this->eyInt=0;
-        this->ezInt=0;
-    }else{
-        //利用误差和误差积分（即PI）修正陀螺仪的测量数据
-
-        gx += gyr_kp * ex + this->exInt;
-        gy += gyr_kp * ey + this->eyInt;
-        gz += gyr_kp * ez + this->ezInt;
-    }
-*/
-    gx = gx + gyr_kp * ex + this->exInt;
-    gy = gy + gyr_kp * ey + this->eyInt;
-    gz = gz + gyr_kp * ez + this->ezInt;
+    gx = gx + gyr_kp * ex + exInt;
+    gy = gy + gyr_kp * ey + eyInt;
+    gz = gz + gyr_kp * ez + ezInt;
 
     //printf("g: %f,%f,%f\n",gx,gy,gz);
 
@@ -575,7 +413,7 @@ void imu::Mahony_Filter_Update() {
     }
 */
     //将四元数归一化
-    norm = invSqrt(m_q0 * m_q0 + m_q1 * m_q1 + m_q2 * m_q2 + m_q3 * m_q3);
+    norm = Invert_Sqrt(m_q0 * m_q0 + m_q1 * m_q1 + m_q2 * m_q2 + m_q3 * m_q3);
     m_q0 *= norm;
     m_q1 *= norm;
     m_q2 *= norm;
@@ -593,14 +431,14 @@ void imu::Mahony_Filter_Update() {
     temp_yaw = atan2((2.0f * m_q1 * m_q2 + 2.0f * m_q0 * m_q3),(-2.0f * m_q2 * m_q2 - 2.0f * m_q3 * m_q3 + 1.0f)) *57.296f;
 
     //更新储存的四元数
-    this->q0 = m_q0;
-    this->q1 = m_q1;
-    this->q2 = m_q2;
-    this->q3 = m_q3;
+    q0 = m_q0;
+    q1 = m_q1;
+    q2 = m_q2;
+    q3 = m_q3;
 
     //更新欧拉角
     roll_lock.lock();pitch_lock.lock();yaw_lock.lock();
-    this->roll = temp_roll;this->pitch = temp_pitch;this->yaw = temp_yaw;
+    roll = temp_roll;pitch = temp_pitch;yaw = temp_yaw;
     roll_lock.unlock();pitch_lock.unlock();yaw_lock.unlock();
 
     //printf("%f, %f, %f\n",temp_roll,temp_pitch,temp_yaw);
@@ -629,47 +467,75 @@ float imu::Get_Yaw() {
 }
 
 float imu::Get_Roll_Speed() { 
-    gyr_x_lock.lock();
-    float result=this->gyr_x;
-    gyr_x_lock.unlock();
+    char temp[2];
+    gyr_lock.lock();
+    temp[0]=gyr_data[0];
+    temp[1]=gyr_data[1];
+    gyr_lock.unlock();
+    float result=int16_t(temp[0]<<8|temp[1])/ITG3205_SENSITIVITY-gyr_offsetx;
     return result; 
 }
 
-float imu::Get_Pitch_Speed() { 
-    gyr_y_lock.lock();
-    float result=this->gyr_y;
-    gyr_y_lock.unlock();
+float imu::Get_Pitch_Speed() {
+    char temp[2]; 
+    gyr_lock.lock();
+    temp[0]=gyr_data[2];
+    temp[1]=gyr_data[3];
+    gyr_lock.unlock();
+    float result=int16_t(temp[0]<<8|temp[1])/ITG3205_SENSITIVITY-gyr_offsetx;
     return result; 
 }
 
 float imu::Get_Yaw_Speed() { 
-    gyr_z_lock.lock();
-    float result=this->gyr_z;
-    gyr_z_lock.unlock();
+    char temp[2]; 
+    gyr_lock.lock();
+    temp[0]=gyr_data[4];
+    temp[1]=gyr_data[5];
+    gyr_lock.unlock();
+    float result=int16_t(temp[0]<<8|temp[1])/ITG3205_SENSITIVITY-gyr_offsetx;
     return result; 
 }
 
 float imu::Get_ACC_X(){
-    acc_x_lock.lock();
-    float result=this->acc_x;
-    acc_x_lock.unlock();
+    char temp[2]; 
+    acc_lock.lock();
+    temp[0]=acc_data[0];
+    temp[1]=acc_data[1];
+    acc_lock.unlock();
+    float result=int16_t(temp[1]<<8|temp[0])*ADXL345_RATIO;
     return result; 
 }
 
 float imu::Get_ACC_Y(){
-    acc_y_lock.lock();
-    float result=this->acc_y;
-    acc_y_lock.unlock();
+    char temp[2]; 
+    acc_lock.lock();
+    temp[0]=acc_data[2];
+    temp[1]=acc_data[3];
+    acc_lock.unlock();
+    float result=int16_t(temp[1]<<8|temp[0])*ADXL345_RATIO;
     return result; 
 }
 
 float imu::Get_ACC_Z(){
-    acc_z_lock.lock();
-    float result=this->acc_z;
-    acc_z_lock.unlock();
+    char temp[2]; 
+    acc_lock.lock();
+    temp[0]=acc_data[4];
+    temp[1]=acc_data[5];
+    acc_lock.unlock();
+    float result=int16_t(temp[1]<<8|temp[0])*ADXL345_RATIO;
     return result; 
 }
 
+float Invert_Sqrt(float x) {
+	float halfx = 0.5f * x;
+	float y = x;
+	long i = *(long*)&y;
+	i = 0x5f3759df - (i>>1);
+	y = *(float*)&i;
+	y = y * (1.5f - (halfx * y * y));
+	return y;
+}
+/* 
 void imu::Traditional_Linear_Filter_Init(float ax,float ay,float az){
     
     float norm = sqrt(ax * ax + ay * ay + az * az);
@@ -680,9 +546,9 @@ void imu::Traditional_Linear_Filter_Init(float ax,float ay,float az){
 }
 void imu::Traditional_Linear_Filter_Update(){
     //互补滤波
-    acc_x_lock.lock();acc_y_lock.lock();acc_z_lock.lock();
+    acc_lock.lock();
     float ax=this->acc_x,ay=this->acc_y,az=this->acc_z;
-    acc_x_lock.unlock();acc_y_lock.unlock();acc_z_lock.unlock();
+    acc_lock.unlock();
     float norm = sqrt(ax * ax + ay * ay + az * az);
     float tan_roll=ay/az;
     float acc_roll=atan(tan_roll);
@@ -697,13 +563,4 @@ void imu::Traditional_Linear_Filter_Update(){
     this->last_pitch=this->pitch;
     this->last_yaw=this->yaw;
 }
-
-float invSqrt(float x) {
-	float halfx = 0.5f * x;
-	float y = x;
-	long i = *(long*)&y;
-	i = 0x5f3759df - (i>>1);
-	y = *(float*)&i;
-	y = y * (1.5f - (halfx * y * y));
-	return y;
-}
+*/

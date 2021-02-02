@@ -35,38 +35,41 @@
 #define EULER_BEFORE_NUMBER 100
 
 #include "mbed.h"
+#include <cstring>
+
 
 class imu {
-    I2C *i2c_imu = nullptr;
-    float acc_x = 0, acc_y = 0, acc_z = 0; //加速度计三轴加速度
-    float before_acc_x[ACC_BEFORE_NUMBER]={0},before_acc_y[ACC_BEFORE_NUMBER]={0},before_acc_z[ACC_BEFORE_NUMBER]={0};//储存前十个加速度计的值
-    float before_gyr_x[GYR_BEFORE_NUMBER]={0},before_gyr_y[GYR_BEFORE_NUMBER]={0},before_gyr_z[GYR_BEFORE_NUMBER]={0};
-    int before_acc_point_x=0,before_acc_point_y=0,before_acc_point_z=0,before_gyr_point_x=0,before_gyr_point_y=0,before_gyr_point_z=0;
-    float gyr_x, gyr_y, gyr_z,
-        gyr_offsetx = 0, gyr_offsety = 0,
-        gyr_offsetz = 0; //陀螺仪三轴角速度，和三轴初始误差
-    float q0 = 0, q1 = 0, q2 = 0, q3 = 0; //表示整个旋转的四元数
-    float exInt = 0, eyInt = 0, ezInt = 0; //加速度计和陀螺仪之间的测量误差
-    float roll, pitch, yaw,last_roll,last_pitch,last_yaw;
-    Mutex gyr_x_lock,gyr_y_lock,gyr_z_lock;
-    Mutex acc_x_lock,acc_y_lock,acc_z_lock;
-    Mutex roll_lock,pitch_lock,yaw_lock;
+    static I2C *i2c_imu;
+    static char acc_data[7],gyr_data[7]; //加速度计三轴加速度
+    static Mutex gyr_lock;
+    static Mutex acc_lock;
+    static Mutex roll_lock,pitch_lock,yaw_lock;
+    static float q0, q1, q2, q3; //表示整个旋转的四元数
+    static float exInt, eyInt, ezInt; //加速度计和陀螺仪之间的测量误差
+    static float roll, pitch, yaw,last_roll,last_pitch,last_yaw;
+    static float gyr_offsetx, gyr_offsety,gyr_offsetz; //陀螺仪三轴角速度，和三轴初始误差
+
+    //float before_acc_x[ACC_BEFORE_NUMBER]={0},before_acc_y[ACC_BEFORE_NUMBER]={0},before_acc_z[ACC_BEFORE_NUMBER]={0};//储存前十个加速度计的值
+    //float before_gyr_x[GYR_BEFORE_NUMBER]={0},before_gyr_y[GYR_BEFORE_NUMBER]={0},before_gyr_z[GYR_BEFORE_NUMBER]={0};
+    //int before_acc_point_x=0,before_acc_point_y=0,before_acc_point_z=0,before_gyr_point_x=0,before_gyr_point_y=0,before_gyr_point_z=0;
+
 
   public:
     bool is_move=false;
     imu(PinName sda, PinName scl);
 
+    static int ADXL345_ReadData();
+    static int ITG3205_ReadData();
+    static void Mahony_Filter_Update();
+    
     int ADXL345_Initialize();
-    int ADXL345_ReadData();
     int ADXL345_Calibration();
     int ITG3205_Initialize();
-    int ITG3205_ReadData();
     int ITG3205_Calibration();
     int HMC5883L_Initialize();
     int HMC5883L_ReadData();
 
     void Mahony_Filter_Init(float ax,float ay,float az);
-    void Mahony_Filter_Update();
 
     void Traditional_Linear_Filter_Init(float ax,float ay,float az);
     void Traditional_Linear_Filter_Update();
